@@ -22,6 +22,8 @@ let serviceID
 let accessGroup
 
 module.exports = {
+  authenticate,
+  isSecure,
   encoding,
   curves,
   setServiceID,
@@ -54,6 +56,18 @@ function setAccessGroup (val) {
 
 function getAccessGroup () {
   return accessGroup
+}
+
+function authenticate (cb) {
+  RNECC.authenticate(function(err, result) {
+    cb(convertError(err), result);
+  });
+}
+
+function isSecure (cb) {
+  RNECC.isSecure(function(err, result) {
+    cb(convertError(err), result);
+  });
 }
 
 /**

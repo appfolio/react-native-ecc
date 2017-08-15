@@ -1,6 +1,8 @@
 package com.rn.ecc;
 
+import android.app.KeyguardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
@@ -83,6 +85,8 @@ public class ECCModule extends ReactContextBaseJavaModule {
                                 KeyProperties.DIGEST_SHA512,
                                 KeyProperties.DIGEST_NONE)
                     .setKeySize(sizeInBits)
+                    .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(10)
                     .build());
             KeyPair kp = kpg.genKeyPair();
             ECPublicKey publicKey = (ECPublicKey)kp.getPublic();
@@ -124,6 +128,7 @@ public class ECCModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void sign(ReadableMap map, Callback function) {
+
         String publicKeyString = map.getString("pub");
 
         String keyAlias = pref.getString(publicKeyString, null);
@@ -178,6 +183,38 @@ public class ECCModule extends ReactContextBaseJavaModule {
         }
 
         function.invoke(null, verified);
+    }
+
+    @ReactMethod
+    public void authenticate(Callback function) {
+        try {
+            KeyguardManager kg = getReactApplicationContext().getSystemService(KeyguardManager.class);
+            Intent LaIntent = kg.createConfirmDeviceCredentialIntent("Local Auth", "Please authenticate yourself to continue.");
+            getReactApplicationContext().startActivityForResult(LaIntent, 0, null);
+        }
+        catch (Exception ex) {
+            Log.e("RNECC", "authentication error", ex);
+            function.invoke(ex.toString(), false);
+            return;
+        }
+        function.invoke(null, true);
+    }
+
+    @ReactMethod
+    public void isSecure(Callback function) {
+        try {
+            KeyguardManager kg = getReactApplicationContext().getSystemService(KeyguardManager.class);
+            boolean secure = kg.isDeviceSecure();
+            if(secure) {
+                function.invoke(null, true);
+                return;
+            }
+            function.invoke(null, false);
+        }
+        catch (Exception ex) {
+            Log.e("RNECC", "security check error", ex);
+            function.invoke(ex.toString(), null);
+        }
     }
 
     private static byte[] encodeECPublicKey(ECPublicKey pubKey) throws InvalidKeyException {
