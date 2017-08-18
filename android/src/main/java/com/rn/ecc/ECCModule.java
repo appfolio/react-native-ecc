@@ -1,19 +1,35 @@
 package com.rn.ecc;
 
+import android.annotation.TargetApi;
+import android.app.Activity;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.hardware.fingerprint.FingerprintManager;
+import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.util.Log;
+import android.util.Pair;
 
+import com.facebook.react.bridge.ActivityEventListener;
+import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.BaseActivityEventListener;
 import com.facebook.react.bridge.Callback;
+import com.facebook.react.bridge.Dynamic;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
+import com.facebook.react.bridge.ReactContext;
+import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.ReadableMapKeySetIterator;
+import com.facebook.react.bridge.ReadableType;
+import com.facebook.react.bridge.WritableArray;
+import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
@@ -22,9 +38,11 @@ import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.Signature;
+import java.security.SignatureException;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.ECPoint;
@@ -38,11 +56,24 @@ import java.util.UUID;
 /**
  * Created by Jacob Gins on 6/2/2016.
  */
-public class ECCModule extends ReactContextBaseJavaModule {
+@TargetApi(21)
+public class ECCModule extends ReactContextBaseJavaModule implements ActivityEventListener {
     private static final String KEY_TO_ALIAS_MAPPER = "key.to.alias.mapper";
     private static final Map<Integer, String> sizeToName = new HashMap<Integer, String>();
     private static final Map<Integer, byte[]> sizeToHead = new HashMap<Integer, byte[]>();
     private SharedPreferences pref;
+    private ECCFingerprint mECCFingerprint;
+    private final int LA_ACTIVITY_CODE = 10756;
+
+    protected abstract class ActivityResultRunnable implements Runnable {
+        protected int resultCode;
+
+        public void setActivityResultCode(int resultCode) {
+            this.resultCode = resultCode;
+        }
+    }
+
+    private ActivityResultRunnable futureAuthenticatedSign;
 
     static {
         sizeToName.put(192, "secp192r1");
@@ -55,6 +86,7 @@ public class ECCModule extends ReactContextBaseJavaModule {
     public ECCModule(ReactApplicationContext reactContext) {
         super(reactContext);
         pref = reactContext.getSharedPreferences(KEY_TO_ALIAS_MAPPER, Context.MODE_PRIVATE);
+        reactContext.addActivityEventListener(this);
     }
 
     @Override
@@ -62,8 +94,23 @@ public class ECCModule extends ReactContextBaseJavaModule {
         return "RNECC";
     }
 
+    @Override
+    public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
+        if (futureAuthenticatedSign != null &&
+                requestCode == LA_ACTIVITY_CODE) {
+            futureAuthenticatedSign.setActivityResultCode(resultCode);
+            futureAuthenticatedSign.run();
+            futureAuthenticatedSign = null;
+        }
+    }
+
+    @Override
+    public void onNewIntent(Intent intent) {
+    }
+
     @ReactMethod
     public void generateECPair(ReadableMap map, Callback function) {
+
         int sizeInBits = map.getInt("bits");
         String keyAlias = UUID.randomUUID().toString();
         try {
@@ -86,7 +133,7 @@ public class ECCModule extends ReactContextBaseJavaModule {
                                 KeyProperties.DIGEST_NONE)
                     .setKeySize(sizeInBits)
                     .setUserAuthenticationRequired(true)
-                    .setUserAuthenticationValidityDurationSeconds(10)
+//                    .setUserAuthenticationValidityDurationSeconds(10)
                     .build());
             KeyPair kp = kpg.genKeyPair();
             ECPublicKey publicKey = (ECPublicKey)kp.getPublic();
@@ -127,42 +174,73 @@ public class ECCModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void sign(ReadableMap map, Callback function) {
+    public void sign(ReadableMap map) {
+        final String hash = map.getString("hash");
+        final String publicKey = map.getString("pub");
 
-        String publicKeyString = map.getString("pub");
+        final Pair<PrivateKey, Signature> keyAndSignature = prepareSigning(publicKey);
+        if (Build.VERSION.SDK_INT >= 23) {
+            mECCFingerprint = new ECCFingerprint(getReactApplicationContext().getSystemService(FingerprintManager.class), new FingerprintManager.AuthenticationCallback() {
+                @Override
+                public void onAuthenticationError(int errMsgId, CharSequence errString) {
+                    if (!mECCFingerprint.isSelfCancelled()) {
+                        WritableMap params = Arguments.createMap();
+                        params.putString("message", errString.toString());
+                        sendEvent("fingerprintError", params);
+                    }
+                }
 
-        String keyAlias = pref.getString(publicKeyString, null);
-        if (keyAlias == null) {
-            Log.e("RNECC", "key not found: " + publicKeyString);
-            function.invoke("Unknown public key", null);
-            return;
-        }
+                @Override
+                public void onAuthenticationHelp(int helpMsgId, CharSequence helpString) {
+                    WritableMap params = Arguments.createMap();
+                    params.putString("message", helpString.toString());
+                    sendEvent("fingerprintHelp", params);
+                }
 
-        String hash = map.getString("hash");
-        String signature = "";
-        try {
-            KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
-            ks.load(null);
+                @Override
+                public void onAuthenticationFailed() {
+                    WritableMap params = Arguments.createMap();
+                    sendEvent("fingerprintFailed", params);
+                }
 
-            KeyStore.Entry entry = ks.getEntry(keyAlias, null);
-            if (!(entry instanceof KeyStore.PrivateKeyEntry)) {
-                function.invoke("Not an instance of a PrivateKeyEntry", null);
-                return;
+                @Override
+                public void onAuthenticationSucceeded(FingerprintManager.AuthenticationResult result) {
+                    String base64Signature = authenticatedSign(keyAndSignature.first, result.getCryptoObject().getSignature(), hash);
+                    WritableMap params = Arguments.createMap();
+                    params.putString("signature", base64Signature);
+                    sendEvent("fingerprintSuccess", params);
+                }
+            });
+            if (mECCFingerprint.isFingerprintAuthAvailable()) {
+                try {
+                    keyAndSignature.second.initSign(keyAndSignature.first);
+                    mECCFingerprint.startListening(new FingerprintManager.CryptoObject(keyAndSignature.second));
+                } catch (InvalidKeyException e) {
+                    e.printStackTrace();
+                }
+            } else {
+                futureAuthenticatedSign = new ActivityResultRunnable() {
+                    @Override
+                    public void run() {
+                        if (this.resultCode == Activity.RESULT_OK) {
+                            String result = authenticatedSign(keyAndSignature.first, keyAndSignature.second, hash);
+                            WritableMap params = Arguments.createMap();
+                            params.putString("signature", result);
+                            sendEvent("fingerprintSuccess", params);
+                        }
+                    }
+                };
+
+                KeyguardManager kg = (KeyguardManager)getReactApplicationContext().getSystemService(Context.KEYGUARD_SERVICE);
+                Intent laIntent = kg.createConfirmDeviceCredentialIntent("Local Auth", "Please authenticate yourself to continue.");
+                getReactApplicationContext().startActivityForResult(laIntent, LA_ACTIVITY_CODE, null);
             }
+        } else if (Build.VERSION.SDK_INT >= 21) {
+            KeyguardManager kg = (KeyguardManager)getReactApplicationContext().getSystemService(Context.KEYGUARD_SERVICE);
+            Intent laIntent = kg.createConfirmDeviceCredentialIntent("Local Auth", "Please authenticate yourself to continue.");
+            getReactApplicationContext().startActivityForResult(laIntent, LA_ACTIVITY_CODE, null);
 
-            Signature s = Signature.getInstance("NONEwithECDSA");
-            PrivateKey key = ((KeyStore.PrivateKeyEntry) entry).getPrivateKey();
-            s.initSign(key);
-            s.update(fromBase64(hash));
-            byte[] signatureBytes = s.sign();
-            signature = toBase64(signatureBytes);
-        } catch (Exception ex) {
-            Log.e("sign", "ERR", ex);
-            function.invoke(ex.toString(), null);
-            return;
         }
-
-        function.invoke(null, signature);
     }
 
     @ReactMethod
@@ -186,21 +264,6 @@ public class ECCModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void authenticate(Callback function) {
-        try {
-            KeyguardManager kg = getReactApplicationContext().getSystemService(KeyguardManager.class);
-            Intent LaIntent = kg.createConfirmDeviceCredentialIntent("Local Auth", "Please authenticate yourself to continue.");
-            getReactApplicationContext().startActivityForResult(LaIntent, 0, null);
-        }
-        catch (Exception ex) {
-            Log.e("RNECC", "authentication error", ex);
-            function.invoke(ex.toString(), false);
-            return;
-        }
-        function.invoke(null, true);
-    }
-
-    @ReactMethod
     public void isSecure(Callback function) {
         try {
             KeyguardManager kg = getReactApplicationContext().getSystemService(KeyguardManager.class);
@@ -214,6 +277,47 @@ public class ECCModule extends ReactContextBaseJavaModule {
         catch (Exception ex) {
             Log.e("RNECC", "security check error", ex);
             function.invoke(ex.toString(), null);
+        }
+    }
+
+    private Pair<PrivateKey, Signature> prepareSigning(String publicKeyString) {
+        WritableMap params = Arguments.createMap();
+        String keyAlias = pref.getString(publicKeyString, null);
+        if (keyAlias == null) {
+            params.putString("missingKey", publicKeyString);
+            sendEvent("signError", params);
+            return null;
+        }
+
+        try {
+            KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+            ks.load(null);
+
+            KeyStore.Entry entry = ks.getEntry(keyAlias, null);
+            if (!(entry instanceof KeyStore.PrivateKeyEntry)) {
+                sendEvent("keyStoreError", params);
+            }
+
+            PrivateKey key = ((KeyStore.PrivateKeyEntry) entry).getPrivateKey();
+            Signature signature = Signature.getInstance("NONEwithECDSA");
+            return Pair.create(key, signature);
+        } catch (Exception ex) {
+            params.putString("message", ex.toString());
+            sendEvent("signError", params);
+            return null;
+        }
+    }
+
+    private String authenticatedSign(PrivateKey privateKey, Signature signature, String hash) {
+        try {
+            signature.initSign(privateKey);
+            signature.update(fromBase64(hash));
+            byte[] signatureBytes = new byte[0];
+            signatureBytes = signature.sign();
+            String base64Signature = toBase64(signatureBytes);
+            return base64Signature;
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -253,6 +357,13 @@ public class ECCModule extends ReactContextBaseJavaModule {
         KeyPair kp = kpg.generateKeyPair();
         byte[] encoded = kp.getPublic().getEncoded();
         return Arrays.copyOf(encoded, encoded.length - 2 * (size / Byte.SIZE));
+    }
+
+    private void sendEvent(String eventName,
+                           WritableMap params) {
+        getReactApplicationContext()
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit(eventName, params);
     }
 
     public static ECPublicKey decodeECPublicKey(byte[] pubKeyBytes)
@@ -338,4 +449,5 @@ public class ECCModule extends ReactContextBaseJavaModule {
         System.arraycopy(by, 0, b, sublen, sublen);
         return b;
     }
+
 }

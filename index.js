@@ -22,7 +22,6 @@ let serviceID
 let accessGroup
 
 module.exports = {
-  authenticate,
   isSecure,
   encoding,
   curves,
@@ -56,12 +55,6 @@ function setAccessGroup (val) {
 
 function getAccessGroup () {
   return accessGroup
-}
-
-function authenticate (cb) {
-  RNECC.authenticate(function(err, result) {
-    cb(convertError(err), result);
-  });
 }
 
 function isSecure (cb) {
@@ -99,22 +92,20 @@ function keyPair (curve, cb) {
  * @param  {String}          options.algorithm - algorithm to use to hash data before signing
  * @param  {Function} cb
  */
-function sign ({ pubKey, data, algorithm }, cb) {
+function sign ({ pubKey, data, algorithm }) {
   checkServiceID()
   assert(Buffer.isBuffer(pubKey) || typeof pubKey === 'string')
   assert(Buffer.isBuffer(data) || typeof data === 'string')
 
   checkNotCompact(pubKey)
-
   const hash = getHash(data, algorithm)
-  assert(typeof cb === 'function')
 
   RNECC.sign({
     service: serviceID,
     accessGroup: accessGroup,
     pub: toString(pubKey),
     hash: toString(hash)
-  }, normalizeCallback(cb))
+  })
 }
 
 /**
