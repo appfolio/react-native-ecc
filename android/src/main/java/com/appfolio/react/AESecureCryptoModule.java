@@ -1,4 +1,4 @@
-package com.rn.ecc;
+package com.appfolio.react;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -33,10 +33,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Created by Jacob Gins on 6/2/2016.
- */
-public class ECCModule extends ReactContextBaseJavaModule {
+public class AESecureCryptoModule extends ReactContextBaseJavaModule {
     private static final String KEY_TO_ALIAS_MAPPER = "key.to.alias.mapper";
     private static final Map<Integer, String> sizeToName = new HashMap<Integer, String>();
     private static final Map<Integer, byte[]> sizeToHead = new HashMap<Integer, byte[]>();
@@ -50,14 +47,14 @@ public class ECCModule extends ReactContextBaseJavaModule {
         // sizeToName.put(521, "secp521r1");
     }
 
-    public ECCModule(ReactApplicationContext reactContext) {
+    public AESecureCryptoModule(ReactApplicationContext reactContext) {
         super(reactContext);
         pref = reactContext.getSharedPreferences(KEY_TO_ALIAS_MAPPER, Context.MODE_PRIVATE);
     }
 
     @Override
     public String getName() {
-        return "RNECC";
+        return "AESecureCrypto";
     }
 
     @ReactMethod
@@ -128,7 +125,7 @@ public class ECCModule extends ReactContextBaseJavaModule {
 
         String keyAlias = pref.getString(publicKeyString, null);
         if (keyAlias == null) {
-            Log.e("RNECC", "key not found: " + publicKeyString);
+            Log.e("AESecureCrypto", "key not found: " + publicKeyString);
             function.invoke("Unknown public key", null);
             return;
         }
@@ -172,7 +169,7 @@ public class ECCModule extends ReactContextBaseJavaModule {
             byte[] signatureBytes = fromBase64(signature);
             verified = sig.verify(signatureBytes);
         } catch (Exception ex) {
-            Log.e("RNECC", "verify error", ex);
+            Log.e("AESecureCrypto", "verify error", ex);
             function.invoke(ex.toString(), null);
             return;
         }
@@ -250,7 +247,7 @@ public class ECCModule extends ReactContextBaseJavaModule {
         try {
             return (ECPublicKey) eckf.generatePublic(ecpks);
         } catch (Exception e) {
-            Log.e("RNECC", "failed to decode EC pubKey", e);
+            Log.e("AESecureCrypto", "failed to decode EC pubKey", e);
             throw e;
         }
     }

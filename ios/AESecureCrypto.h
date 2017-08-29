@@ -1,14 +1,13 @@
-//
-//  RNECC.h
-//
-//  Created by Mark Vayngrib on 12/24/15.
-//  Copyright © 2015 Tradle, Inc. All rights reserved.
-//
-
 #import <Foundation/Foundation.h>
-#import <React/RCTBridgeModule.h>
+#include "CommonCrypto/CommonDigest.h"
 
-@interface RNECC : NSObject <RCTBridgeModule>
+#if __has_include("RCTBridgeModule.h")
+#import "RCTBridgeModule.h"
+#else
+#import <React/RCTBridgeModule.h>
+#endif
+
+@interface AESecureCrypto : NSObject <RCTBridgeModule>
 
 - (NSString *) toPublicIdentifier:(NSString *)privIdentifier;
 - (NSData *) getPublicKeyDataByLabel:(NSString *)label;
@@ -18,4 +17,5 @@
 - (NSString *) uuidString;
 - (NSData *)sign:(nonnull NSDictionary*)options errMsg:(NSString **) errMsg;
 - (BOOL) verify:(NSString *)base64pub hash:(NSData *)hash sig:(NSData *)sig errMsg:(NSString **)errMsg;
+
 @end

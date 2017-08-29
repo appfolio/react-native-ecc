@@ -1,13 +1,12 @@
-//
-//  RNECC.m
-//
-//  Created by Mark Vayngrib on 12/24/15.
-//  Copyright © 2015 Tradle, Inc. All rights reserved.
-//
-
-#import "RNECC.h"
 #include "CommonCrypto/CommonDigest.h"
+
+#if __has_include("RCTUtils.h")
+#import "RCTUtils.h"
+#else
 #import <React/RCTUtils.h>
+#endif
+
+#import "AESecureCrypto.h"
 
 #define HASH_LENGTH             CC_SHA256_DIGEST_LENGTH
 #define kTypeOfSigPadding       kSecPaddingPKCS1
@@ -18,7 +17,7 @@ static BOOL isSimulator = YES;
 static BOOL isSimulator = NO;
 #endif
 
-@implementation RNECC
+@implementation AESecureCrypto
 
 RCT_EXPORT_MODULE();
 

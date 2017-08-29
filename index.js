@@ -3,7 +3,7 @@
 import { NativeModules, Platform } from 'react-native'
 import { Buffer } from 'buffer'
 import hasher from 'hash.js'
-const RNECC = NativeModules.RNECC
+const AESecureCrypto = NativeModules.AESecureCrypto
 const isAndroid = Platform.OS === 'android'
 const encoding = 'base64'
 const curves = {
@@ -68,7 +68,7 @@ function keyPair (curve, cb) {
   if (!(curve in curves)) throw new Error('unsupported curve')
 
   let sizeInBits = curves[curve]
-  RNECC.generateECPair({
+  AESecureCrypto.generateECPair({
     curve: curve,
     bits: sizeInBits,
     service: serviceID,
@@ -95,7 +95,7 @@ function sign ({ pubKey, data, algorithm }, cb) {
   const hash = getHash(data, algorithm)
   assert(typeof cb === 'function')
 
-  RNECC.sign({
+  AESecureCrypto.sign({
     service: serviceID,
     accessGroup: accessGroup,
     pub: toString(pubKey),
@@ -120,7 +120,7 @@ function verify ({ pubKey, data, algorithm, sig }, cb) {
   assert(typeof cb === 'function')
 
   const hash = getHash(data, algorithm)
-  RNECC.verify(pubKey, toString(hash), toString(sig), normalizeCallback(cb))
+  AESecureCrypto.verify(pubKey, toString(hash), toString(sig), normalizeCallback(cb))
 }
 
 function hasKey (pubKey, cb) {
@@ -129,9 +129,9 @@ function hasKey (pubKey, cb) {
   checkNotCompact(pubKey)
   pubKey = toString(pubKey)
   cb = normalizeCallback(cb)
-  if (isAndroid) return RNECC.hasKey(pubKey, cb)
+  if (isAndroid) return AESecureCrypto.hasKey(pubKey, cb)
 
-  RNECC.hasKey({
+  AESecureCrypto.hasKey({
     service: serviceID,
     accessGroup: accessGroup,
     pub: pubKey

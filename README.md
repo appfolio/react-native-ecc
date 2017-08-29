@@ -1,8 +1,6 @@
-# react-native-ecc
+# react-native-secure-crypto
 
-basic elliptic curve crypto for React Native
-
-**this module is used by [Tradle](https://github.com/tradle/tim)**
+Basic elliptic curve crypto for React Native, protected with the Secure Enclave for iOS.
 
 ## Installation
 
@@ -11,11 +9,11 @@ See [Linking Libraries](http://facebook.github.io/react-native/docs/linking-libr
 ## Usage
 
 ```js
-import * as ec from 'react-native-ecc'
+import * as ec from 'react-native-secure-crypto'
 import { Buffer } from 'buffer'
 
 // if you want to be able to find your keys
-// next time, make sure to use the same service ID 
+// next time, make sure to use the same service ID
 ec.setServiceID('be.excellent.to.each.other')
 // optional
 // ec.setAccessGroup('dsadjsakd.com.app.awesome.my')
